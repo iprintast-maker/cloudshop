@@ -1,0 +1,3 @@
+-- База клиентов (демо, 2026-11-05). Применено миграциями demo_10_sales_clients, demo_11, demo_12 через Supabase.
+-- Таблица sales_clients, sales.client_id, триггер sales_client_from_card, RPC: sales_create_sale_v7,
+-- sales_attach_client, clients_list, client_history, clients_rename (админ), sales_detach_client (админ).
