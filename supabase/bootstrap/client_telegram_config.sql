@@ -19,4 +19,3 @@ grant execute on function public.telegram_purchase_config() to service_role;
 -- Сначала getWebhookInfo: если у бота уже есть обработчик, подключите к нему команду,
 -- не заменяйте существующий webhook. Регистрацию ниже выполнять после этой проверки.
 commit;
-
