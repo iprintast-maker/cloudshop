@@ -88,4 +88,3 @@ grant execute on function public.site_update_save(bigint,text,text,jsonb,numeric
 grant execute on function public.site_update_set_status(bigint,text) to authenticated;
 grant execute on function public.site_update_decide(bigint,boolean) to authenticated;
 grant execute on function public.is_developer() to authenticated;
-
