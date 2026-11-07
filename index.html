@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ru">
 <head>
-  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="icon" type="image/png" href="assets/logo.png">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>iПринт</title>
@@ -144,6 +144,14 @@ input[type=checkbox],input[type=radio]{accent-color:var(--ink);box-shadow:none}
 header.app-head{position:sticky;top:0;z-index:5;background:rgba(236,238,241,.86);backdrop-filter:saturate(1.4) blur(12px);-webkit-backdrop-filter:saturate(1.4) blur(12px);color:var(--ink);box-shadow:none;border-bottom:1px solid var(--line);padding:12px 24px}
 header.app-head .top{max-width:1240px;gap:12px}
 .brand{display:flex;align-items:center;gap:12px}
+.brand-logo{display:block;width:66px;height:66px;object-fit:contain}
+.help-link{display:inline-flex;align-items:center;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);font-size:13px;font-weight:650;text-decoration:none}
+.help-link:hover{background:#f3eefb;border-color:#c4b1e0}
+.login-brand{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+.login-brand img{width:76px;height:76px;object-fit:contain}
+.login-brand h2{margin:0}
+.login-brand p{margin:5px 0 0;color:var(--muted);font-size:13px}
+@media(max-width:600px){.brand-logo{width:48px;height:48px}.help-link{padding:9px 11px;font-size:12px}}
 .brand h1{font-family:var(--f-display);font-weight:700;font-size:20px;letter-spacing:.06em;margin:0;color:var(--ink)}
 .brand-stripe{display:flex;flex-direction:column;width:28px;height:28px;border-radius:7px;overflow:hidden;background:var(--ink);padding:5px 0 5px;justify-content:flex-end;gap:0}
 .brand-stripe i{display:block;height:3px}
@@ -491,9 +499,10 @@ body.has-task-banner .modal{padding-bottom:calc(var(--task-banner-h,0px) + 10px)
   </defs>
 </svg>
 <header class="app-head"><div class="top">
-  <div class="brand"><span class="brand-stripe" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><h1>iПринт</h1></div>
+  <div class="brand"><img class="brand-logo" src="assets/logo.png" alt="Логотип iПринт" width="66" height="66"><h1>iПринт</h1></div>
   <div class="grow"></div>
   <span id="authStatus" class="status"></span>
+  <a class="help-link" href="help.html" target="_blank" rel="noopener">Инструкция</a>
   <button id="loginBtn" class="ghost">Войти</button>
   <button id="logoutBtn" class="ghost" style="display:none">Выйти</button>
 </div></header>
@@ -655,7 +664,7 @@ body.has-task-banner .modal{padding-bottom:calc(var(--task-banner-h,0px) + 10px)
 </main>
 
 <div class="modal" id="loginModal"><div class="dialog">
-  <h2>Вход</h2>
+  <div class="login-brand"><img src="assets/logo.png" alt="Логотип iПринт" width="76" height="76"><div><h2>Вход в iПринт</h2><p>Рабочее пространство команды</p></div></div>
   <div class="field"><label>Логин</label><input id="email" type="text" autocomplete="username" autocapitalize="none" spellcheck="false"></div>
   <div class="field"><label>Пароль</label><input id="password" type="password" autocomplete="current-password"></div>
   <div id="loginError" class="status"></div>

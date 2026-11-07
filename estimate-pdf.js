@@ -1,6 +1,11 @@
 // Browser-only PDF export. Canvas preserves Cyrillic without external fonts or services.
 (()=>{
   const money=n=>new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB'}).format(n);
+  let logo=null,logoPromise;
+  function loadLogo(){
+    if(!logoPromise)logoPromise=new Promise((resolve,reject)=>{const img=new Image();img.onload=()=>{logo=img;resolve(img)};img.onerror=()=>{logoPromise=null;reject(new Error('Не удалось загрузить логотип. Обновите страницу и повторите скачивание.'))};img.src=new URL('assets/logo.png',document.baseURI).href});
+    return logoPromise;
+  }
   function pdfFromPages(pages){
     const enc=new TextEncoder(),chunks=[],offsets=[0];let size=0;
     const put=s=>{const b=typeof s==='string'?enc.encode(s):s;chunks.push(b);size+=b.length};
@@ -28,7 +33,8 @@
     function page(){
       const c=document.createElement('canvas');c.width=1120;c.height=1584;ctx=c.getContext('2d');ctx.scale(2,2);ctx.fillStyle='#fff';ctx.fillRect(0,0,560,792);pages.push(c);
       ctx.fillStyle='#172033';ctx.fillRect(0,0,560,10);
-      text('iПринт',36,55,25,'#172033','left',true);
+      if(logo)ctx.drawImage(logo,36,22,56,56);
+      text('iПринт',logo?108:36,55,25,'#172033','left',true);
       text('ПРЕДВАРИТЕЛЬНЫЙ РАСЧЁТ',36,84,13,'#53647e');
       text(data.date,524,55,12,'#53647e','right');
       text('Оплата не произведена',36,110,12,'#53647e');y=134;
@@ -66,14 +72,15 @@
     pages.forEach((c,i)=>{ctx=c.getContext('2d');text(`${i+1} / ${pages.length}`,524,765,11,'#8793a6','right')});
     return pdfFromPages(pages);
   }
-  window.EstimatePDF={render};
+  window.EstimatePDF={render,loadLogo};
   const payment=document.getElementById('salePayment');
   payment.insertAdjacentHTML('afterend','<button type="button" id="downloadEstimatePdf" class="secondary" style="display:none;margin-top:10px">↓ Скачать расчёт PDF</button>');
   const button=document.getElementById('downloadEstimatePdf');
   const sync=()=>{button.style.display=payment.value==='estimate'?'inline-block':'none'};
   payment.addEventListener('change',sync);
   new MutationObserver(sync).observe(document.getElementById('saleModal'),{attributes:true,attributeFilter:['class']});sync();
-  button.onclick=()=>{
+  button.onclick=async()=>{
+    if(button.disabled)return;
     try{
       if(!saleDraft.length)throw new Error('Добавьте хотя бы одну позицию в расчёт.');
       const items=saleDraft.map(x=>{
@@ -88,9 +95,12 @@
       const gross=items.reduce((s,x)=>s+x.quantity*x.price,0),percent=Math.min(100,Math.max(0,Number(document.getElementById('saleDiscountPercent').value)||0));
       const discount=Math.round(gross*percent)/100,total=Math.round((gross-discount)*100)/100,now=new Date();
       const employee=document.getElementById('saleEmployeeView');
+      button.disabled=true;button.textContent='Готовлю PDF…';
+      await loadLogo();
       const blob=render({items,gross,percent,discount,total,date:now.toLocaleString('ru-RU'),number:window.saleEstimate?.id,client:document.getElementById('saleClientName')?.value.trim(),branch:document.getElementById('saleBranchView').value,employee:employee.value?employee.selectedOptions[0]?.textContent:'',comment:document.getElementById('saleComment').value.trim()});
       const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`Расчёт-${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}-${now.getTime()}.pdf`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
       document.getElementById('saleStatus').textContent='PDF расчёта скачан. Его можно отправить клиенту.';
     }catch(e){document.getElementById('saleStatus').textContent=e.message||'Не удалось скачать расчёт.'}
+    finally{button.disabled=false;button.textContent='↓ Скачать расчёт PDF'}
   };
 })();
