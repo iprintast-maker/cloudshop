@@ -1,0 +1,10 @@
+[functions.client-updates]
+# Verifies the main site's user session and admin role inside the handler.
+verify_jwt = false
+
+[functions.telegram-purchase]
+# Verifies Telegram's secret webhook header inside the handler.
+verify_jwt = false
+
+[functions.staff-admin]
+verify_jwt = true
