@@ -2332,12 +2332,40 @@ $('customerAdminSearch').addEventListener('input',()=>loadCustomerAdminRows());
 async function openCustomersAdmin(){if(!isAdmin){open('loginModal');return}await loadCustomerAdminRows();await loadGiftRules();open('customersModal')}
 
 let staffAccount=null;
-async function refreshAuth(){
-  const {data}=await db.auth.getUser(); staffAccount=null;
-  if(data.user){const r=await db.from('staff_accounts').select('user_id,login,name,role,active').eq('user_id',data.user.id).maybeSingle();if(!r.error&&r.data?.active)staffAccount=r.data}
+let authCheckVersion=0, authRetryTimer=null;
+function authConnectionLost(version){
+  if(version!==authCheckVersion)return;
+  const message='Связь с сервером потеряна. Проверяем подключение… Не закрывайте страницу.';
+  $('authStatus').textContent=message;
+  if(!staffAccount){document.body.classList.add('staff-locked');$('loginError').textContent=message;open('loginModal')}
+  clearTimeout(authRetryTimer);authRetryTimer=setTimeout(()=>refreshAuth(),10000);
+}
+function temporaryAuthError(error){return !!error&&(error.name==='AuthRetryableFetchError'||error.name==='TypeError'||!Number(error.status)||Number(error.status)>=500)}
+async function refreshAuth(signedOut=false){
+  const version=++authCheckVersion;clearTimeout(authRetryTimer);
+  let data={user:null}, nextAccount=null;
+  if(!signedOut){
+    let result;
+    try{result=await db.auth.getUser()}catch(error){authConnectionLost(version);return}
+    if(version!==authCheckVersion)return;
+    if(temporaryAuthError(result.error)){authConnectionLost(version);return}
+    data=result.data||{user:null};
+    if(data.user){
+      // Do not retain another user's UI while switching accounts.
+      if(staffAccount&&staffAccount.user_id!==data.user.id){staffAccount=null;isAdmin=false;document.body.classList.add('staff-locked')}
+      let r;
+      try{r=await db.from('staff_accounts').select('user_id,login,name,role,active').eq('user_id',data.user.id).maybeSingle()}catch(error){authConnectionLost(version);return}
+      if(version!==authCheckVersion)return;
+      if(r.error&&(!r.status||r.status>=500)){authConnectionLost(version);return}
+      if(r.data?.active)nextAccount=r.data;
+    }
+  }
+  if(version!==authCheckVersion)return;
+  staffAccount=nextAccount;
   isAdmin=staffAccount?.role==='admin';
   const signedIn=!!data.user, locked=STAFF_LOGIN_REQUIRED&&!staffAccount;
   document.body.classList.toggle('staff-locked',locked);
+  if(!locked&&staffAccount)close('loginModal');
   if(locked){$('loginError').textContent=signedIn?'Учётная запись отключена. Обратитесь к администратору.':'';open('loginModal')}
   $('loginBtn').style.display=signedIn?'none':'inline-block'; $('logoutBtn').style.display=signedIn?'inline-block':'none';
   $('payrollBtn').style.display=isAdmin?'inline-block':'none'; $('staffAccountsBtn').style.display=isAdmin?'inline-block':'none';
@@ -2660,7 +2688,7 @@ window.deleteSalesEmployee=async personId=>{
   await loadSalesSetup();
 };
 // Внутри обработчика нельзя ждать запросов к базе: supabase-js держит блокировку сессии, и следующие запросы зависают.
-db.auth.onAuthStateChange(()=>setTimeout(refreshAuth,0));
+db.auth.onAuthStateChange(event=>setTimeout(()=>refreshAuth(event==='SIGNED_OUT'),0));
 // Инициализация выполняется после регистрации итоговых обработчиков v4/v5.
 </script>
 <script>

@@ -32,7 +32,8 @@
   }catch(error){const status=error.name==='AbortError'?'Нет ответа за 30 секунд':error.name+': '+error.message;state.textContent=status;state.className='bad';statuses.push({name:title.textContent,url:postUrl,status,ok:false})}
   finally{clearTimeout(timer)}
   statuses.forEach(s=>lines.push(s.name+': '+s.status+'\n'+s.url));
-  if(statuses[1].ok&&!statuses[3].ok)summary.textContent='Проверка сервера прошла, но запрос входа не прошёл. Передайте этот отчёт для проверки маршрута авторизации.';
+  if(statuses[3].ok)summary.textContent='Запрос входа дошёл до сервера. Если соединение прерывается во время работы, передайте отчёт для проверки стабильности.';
+  else if(statuses[1].ok&&!statuses[3].ok)summary.textContent='Проверка сервера прошла, но запрос входа не прошёл. Передайте этот отчёт для проверки маршрута авторизации.';
   else if(statuses[1].ok)summary.textContent='Соединение с сервером входа доступно. Если вход всё ещё не работает, передайте отчёт для дальнейшей проверки.';
   else if(statuses[2].ok)summary.textContent='Сервер iПринт недоступен, а сервер основного сайта доступен. Передайте результат — можно подобрать другой маршрут подключения.';
   else summary.textContent='Браузер не установил соединение с серверами данных. Передайте результат — одной смены хостинга страницы для этого недостаточно.';
