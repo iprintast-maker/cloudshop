@@ -1,0 +1,31 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Проверка подключения — iПринт</title><link rel="icon" href="assets/logo.png"><style>*{box-sizing:border-box}body{font:15px/1.6 system-ui,Arial;margin:0;background:#f5f6fb;color:#202538}main{max-width:720px;margin:40px auto;padding:28px;background:white;border:1px solid #e1e5ee;border-radius:20px}header{display:flex;align-items:center;gap:16px}header img{width:70px;height:70px;object-fit:contain}h1{font-size:24px;line-height:1.25;margin:0}p{color:#637084}button,a{font:inherit}button{background:#242b42;color:white;border:0;border-radius:10px;padding:12px 16px;cursor:pointer}button:disabled{opacity:.55;cursor:wait}.buttons{display:flex;gap:10px;flex-wrap:wrap}.secondary{background:#edf0f8;color:#242b42}.row{padding:18px 0;border-bottom:1px solid #edf0f5}.row b{display:block}.state{color:#637084}.ok{color:#207445}.bad{color:#af3434}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f6fa;border-radius:10px;padding:16px;font:12px/1.65 Consolas,monospace}a{color:#6751a3}.note{font-size:13px}button:focus-visible,a:focus-visible{outline:3px solid #a48ac9;outline-offset:3px}@media(max-width:740px){main{margin:15px;padding:21px}h1{font-size:21px}header img{width:52px;height:52px}}</style></head><body><main>
+<header><img src="assets/logo.png" alt="iПринт"><h1>Проверка подключения</h1></header><p>Откройте эту страницу на компьютере, где не удаётся войти, <b>без VPN</b>. Проверка не использует логин и пароль и не меняет данные.</p>
+<div class="buttons"><button id="run" type="button">Проверить соединение</button><button id="copy" type="button" class="secondary" disabled>Скопировать результат</button></div>
+<section id="results" aria-live="polite"></section><p id="summary"></p><pre id="report" hidden></pre><p class="note">После проверки скопируйте результат и передайте его настройщику сайта. Отчёт сам никуда не отправляется.</p><a href="./">Вернуться на сайт</a>
+<script>
+(()=>{
+ const checks=[
+  {name:'Страница сайта (GitHub)',url:new URL('config.js',location.href).href},
+  {name:'Сервер входа iПринт',url:'https://cvlwoylsdgvwycntyqxu.supabase.co/auth/v1/health',key:'sb_publishable_uSRUqIQ1P0cBTDwdN6OTTA_v0b-TvAR'},
+  {name:'Сервер основного сайта (для сравнения)',url:'https://tmxluzvymwldtxbaiekn.supabase.co/auth/v1/health',key:'sb_publishable_seHlOPu_cbFZOCmqG9UCzQ_9411endl'}
+ ];
+ const run=document.getElementById('run'),copy=document.getElementById('copy'),results=document.getElementById('results'),report=document.getElementById('report'),summary=document.getElementById('summary');
+ run.onclick=async()=>{
+  run.disabled=true;copy.disabled=true;summary.textContent='Проверяю соединение…';report.hidden=true;results.replaceChildren();
+  const lines=['Проверка iПринт',new Date().toLocaleString('ru-RU'),'Страница: '+location.href,'Браузер: '+navigator.userAgent];
+  const statuses=await Promise.all(checks.map(async item=>{
+   const row=document.createElement('div');row.className='row';const title=document.createElement('b');title.textContent=item.name;const state=document.createElement('span');state.className='state';state.textContent='Подключение…';row.append(title,state);results.append(row);
+   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000),started=performance.now();
+   try{const response=await fetch(item.url,{headers:item.key?{apikey:item.key}:{},cache:'no-store',signal:controller.signal});const text='HTTP '+response.status+' · '+Math.round(performance.now()-started)+' мс';state.textContent=text;state.className=response.ok?'ok':'bad';return {name:item.name,url:item.url,status:text,ok:response.ok}}
+   catch(error){const text=error.name==='AbortError'?'Нет ответа за 12 секунд':error.name+': '+error.message;state.textContent=text;state.className='bad';return {name:item.name,url:item.url,status:text,ok:false}}
+   finally{clearTimeout(timer)}
+  }));
+  statuses.forEach(s=>lines.push(s.name+': '+s.status+'\n'+s.url));
+  if(statuses[1].ok)summary.textContent='Соединение с сервером входа доступно. Если вход всё ещё не работает, передайте отчёт для дальнейшей проверки.';
+  else if(statuses[2].ok)summary.textContent='Сервер iПринт недоступен, а сервер основного сайта доступен. Передайте результат — можно подобрать другой маршрут подключения.';
+  else summary.textContent='Браузер не установил соединение с серверами данных. Передайте результат — одной смены хостинга страницы для этого недостаточно.';
+  report.textContent=lines.join('\n');report.hidden=false;copy.disabled=false;run.disabled=false;
+ };
+ copy.onclick=async()=>{try{await navigator.clipboard.writeText(report.textContent);copy.textContent='Результат скопирован'}catch{copy.textContent='Выделите и скопируйте текст ниже';report.focus()}};
+})();
+</script></main></body></html>
