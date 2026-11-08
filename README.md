@@ -21,6 +21,8 @@ Telegram-бот: https://t.me/iprinttipografia_bot. Ежедневная сво�
 
 ## Размещение
 
+Для GitHub Pages в Settings → Pages выберите Source: GitHub Actions. Workflow `.github/workflows/pages.yml` собирает и публикует только `dist`, сохраняя прежнюю базу Supabase. Адрес проекта: `https://iprintast-maker.github.io/cloudshop/`. Переключение адреса не требует повторной загрузки данных или изменения логинов.
+
 Команда сборки: `node build.mjs`. Папка публикации: `dist`. Публиковать нужно только содержимое этой папки.
 
 Для локального просмотра: выполните сборку, затем запустите HTTP-сервер в dist, например `python -m http.server 8080 --directory dist`.
