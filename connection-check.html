@@ -20,8 +20,20 @@
    catch(error){const text=error.name==='AbortError'?'Нет ответа за 12 секунд':error.name+': '+error.message;state.textContent=text;state.className='bad';return {name:item.name,url:item.url,status:text,ok:false}}
    finally{clearTimeout(timer)}
   }));
+  const item=checks[1],postUrl=item.url.replace('/health','/token?grant_type=password');
+  const row=document.createElement('div');row.className='row';const title=document.createElement('b');title.textContent='Запрос входа iПринт (POST, тестовая учётная запись)';const state=document.createElement('span');state.textContent='Проверяю запрос входа…';row.append(title,state);results.append(row);
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),30000),started=performance.now();
+  try{
+   const response=await fetch(postUrl,{method:'POST',headers:{apikey:item.key,'Content-Type':'application/json'},body:JSON.stringify({email:'connectivity-probe-nonexistent@staff.cloudshop.local',password:'ConnectivityProbeOnly-NotAUserPassword'}),signal:controller.signal});
+   const body=await response.json().catch(()=>({}));
+   const reachable=response.status===400&&body.error_code==='invalid_credentials';
+   const status='HTTP '+response.status+' · '+Math.round(performance.now()-started)+' мс'+(reachable?' · запрос входа дошёл до сервера':body.error_code?' · '+body.error_code:'');
+   state.textContent=status;state.className=reachable?'ok':'bad';statuses.push({name:title.textContent,url:postUrl,status,ok:reachable});
+  }catch(error){const status=error.name==='AbortError'?'Нет ответа за 30 секунд':error.name+': '+error.message;state.textContent=status;state.className='bad';statuses.push({name:title.textContent,url:postUrl,status,ok:false})}
+  finally{clearTimeout(timer)}
   statuses.forEach(s=>lines.push(s.name+': '+s.status+'\n'+s.url));
-  if(statuses[1].ok)summary.textContent='Соединение с сервером входа доступно. Если вход всё ещё не работает, передайте отчёт для дальнейшей проверки.';
+  if(statuses[1].ok&&!statuses[3].ok)summary.textContent='Проверка сервера прошла, но запрос входа не прошёл. Передайте этот отчёт для проверки маршрута авторизации.';
+  else if(statuses[1].ok)summary.textContent='Соединение с сервером входа доступно. Если вход всё ещё не работает, передайте отчёт для дальнейшей проверки.';
   else if(statuses[2].ok)summary.textContent='Сервер iПринт недоступен, а сервер основного сайта доступен. Передайте результат — можно подобрать другой маршрут подключения.';
   else summary.textContent='Браузер не установил соединение с серверами данных. Передайте результат — одной смены хостинга страницы для этого недостаточно.';
   report.textContent=lines.join('\n');report.hidden=false;copy.disabled=false;run.disabled=false;
