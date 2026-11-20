@@ -1065,6 +1065,7 @@ body.has-task-banner .modal{padding-bottom:calc(var(--task-banner-h,0px) + 10px)
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <script src="formula.js"></script>
+<script src="cashier-identity.js?v=1"></script>
 <script>
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -2342,6 +2343,7 @@ function authConnectionLost(version){
 }
 function temporaryAuthError(error){return !!error&&(error.name==='AuthRetryableFetchError'||error.name==='TypeError'||!Number(error.status)||Number(error.status)>=500)}
 async function refreshAuth(signedOut=false){
+  const priorAccountId=staffAccount?.user_id||null;
   const version=++authCheckVersion;clearTimeout(authRetryTimer);
   let data={user:null}, nextAccount=null;
   if(!signedOut){
@@ -2354,7 +2356,7 @@ async function refreshAuth(signedOut=false){
       // Do not retain another user's UI while switching accounts.
       if(staffAccount&&staffAccount.user_id!==data.user.id){staffAccount=null;isAdmin=false;document.body.classList.add('staff-locked')}
       let r;
-      try{r=await db.from('staff_accounts').select('user_id,login,name,role,active').eq('user_id',data.user.id).maybeSingle()}catch(error){authConnectionLost(version);return}
+      try{r=await db.from('staff_accounts').select('user_id,login,name,role,active,person_id').eq('user_id',data.user.id).maybeSingle()}catch(error){authConnectionLost(version);return}
       if(version!==authCheckVersion)return;
       if(r.error&&(!r.status||r.status>=500)){authConnectionLost(version);return}
       if(r.data?.active)nextAccount=r.data;
@@ -2362,6 +2364,7 @@ async function refreshAuth(signedOut=false){
   }
   if(version!==authCheckVersion)return;
   staffAccount=nextAccount;
+  if(priorAccountId&&priorAccountId!==staffAccount?.user_id)window.dispatchEvent(new Event('iprint:account-changed'));
   isAdmin=staffAccount?.role==='admin';
   const signedIn=!!data.user, locked=STAFF_LOGIN_REQUIRED&&!staffAccount;
   document.body.classList.toggle('staff-locked',locked);
@@ -2763,7 +2766,7 @@ function renderSalesWorkspaceOptions() {
 function updateLeadEmployeeOptions() {
   const primary=Number($('salesEmployeeSelect').value||0);
   const additional=$('salesAddEmployee').checked?Number($('salesAdditionalEmployee').value||0):0;
-  const ids=[primary,additional].filter((id,i,a)=>id && a.indexOf(id)===i);
+  const ids=selectedWorkspacePeople();
   const people=ids.map(id=>salesPeople.find(p=>Number(p.id)===id)).filter(Boolean);
   const wrap=$('salesLeadWrap'),lead=$('salesLeadEmployee');
   if(ids.length<2){wrap.style.display='none';lead.innerHTML='';return;}
@@ -2810,9 +2813,10 @@ async function refreshWorkspaceBranch() {
     workspaceShift=shift?{...shift,participants,leadPersonId:participants.find(p=>p.isLead)?.personId}:null;
     const people=[...uniquePeople()];
     participants.forEach(p=>{if(!people.some(x=>Number(x.id)===p.personId))people.push({id:p.personId,name:p.name,is_active:false});});
-    const currentPrimary=participants[0]?.personId || salesSession?.personId || '';
+    const currentPrimary=IprintCashier.person(staffAccount) || '';
     $('salesEmployeeSelect').innerHTML=people.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('') || '<option value="">Нет сотрудников</option>';
     if(currentPrimary) $('salesEmployeeSelect').value=String(currentPrimary);
+    $('salesEmployeeSelect').disabled=!!currentPrimary;
     const hasSecond=participants.length>1;
     $('salesAddEmployee').checked=hasSecond;
     refreshAdditionalEmployeeOptions();
@@ -2820,7 +2824,7 @@ async function refreshWorkspaceBranch() {
     updateLeadEmployeeOptions();
     $('startShiftBtn').textContent=shift?'Подключиться / сохранить состав':'Начать смену';
     $('salesNoPayWrap').style.display=shift?'none':'flex'; if(shift) $('salesNoPay').checked=false;
-    $('salesWorkspaceStatus').textContent=shift?'Открытая смена №'+shift.id+'. Первый сотрудник выбран автоматически; при необходимости добавьте второго.':'Сначала выберите филиал и сотрудника.';
+    $('salesWorkspaceStatus').textContent=shift?'Общая смена №'+shift.id+'. Ваше рабочее место: '+(staffAccount?.name||'сотрудник')+'. Подключитесь к смене под своим именем.':'Ваше имя выбрано по логину. Начните общую смену.';
     $('startShiftBtn').disabled=false;
   } catch(e) {
     if(request===workspaceRequest) $('salesWorkspaceStatus').textContent='Ошибка: '+e.message;
@@ -2853,32 +2857,31 @@ async function ensureEmployeeRow(personId,branchId) {
 async function validateSalesSession() {
   if(!salesSession?.shiftId) return false;
   const snapshot={...salesSession};
+  if(!staffAccount)throw new Error('Дождитесь входа в свою учётную запись.');
+  if(!IprintCashier.person(staffAccount))throw new Error('Логин не привязан к сотруднику. Укажите сотрудника в настройках логина.');
+  const accountId=staffAccount.user_id;
   const r=await db.rpc('sales_get_shift_context',{p_shift_id:snapshot.shiftId});
   if(r.error) throw r.error;
   const context=r.data;
-  const employee=context?.participants?.find(p=>p.employeeId===Number(snapshot.employeeId) && p.isActive);
+  if(staffAccount?.user_id!==accountId)return false;
+  const employee=IprintCashier.participant(staffAccount,context);
   if(!context || context.status!=='open' || !employee) {
     salesSession=null; persistSalesSession(); updateSalesSessionUI(); return false;
   }
-  salesSession={...snapshot,branchId:context.branchId,branchName:context.branchName,employeeName:employee.name,personId:employee.personId,startedAt:context.startedAt,participants:context.participants};
+  salesSession={...snapshot,accountUserId:accountId,employeeId:employee.employeeId,branchId:context.branchId,branchName:context.branchName,employeeName:employee.name,personId:employee.personId,startedAt:context.startedAt,participants:context.participants};
   persistSalesSession(); updateSalesSessionUI(); return true;
 }
 function renderSaleCashiers() {
-  const participants=(saleContext?.participants||[]).filter(p=>p.isActive);
-  $('saleEmployeeView').innerHTML=participants.map(p=>`<option value="${p.employeeId}">${esc(p.name)}</option>`).join('');
-  if(participants.length===1) $('saleEmployeeView').value=String(participants[0].employeeId);
-  else $('saleEmployeeView').value='';
-  $('saleSessionInfo').textContent=`${saleContext.branchName} · ${participants.length>1?'Выберите кассира':'Кассир: '+saleContext.employeeName}`;
+  const cashier=IprintCashier.participant(staffAccount,saleContext);
+  const view=$('saleEmployeeView');
+  view.innerHTML=cashier?`<option value="${cashier.employeeId}">${esc(cashier.name)}</option>`:'<option value="">Подключитесь к смене под своим логином</option>';
+  view.disabled=true;
+  if(!cashier){$('saleSessionInfo').textContent='Ваш логин не подключён к этой смене.';return;}
+  Object.assign(saleContext,{employeeId:cashier.employeeId,personId:cashier.personId,employeeName:cashier.name,accountUserId:staffAccount.user_id});
+  view.value=String(cashier.employeeId);
+  $('saleSessionInfo').textContent=`${saleContext.branchName} · Кассир: ${cashier.name}`;
 }
-$('saleEmployeeView').onchange=()=>{
-  const selectedId=Number($('saleEmployeeView').value||0);
-  const p=saleContext?.participants.find(p=>p.employeeId===selectedId && p.isActive);
-  if(!p) return;
-  Object.assign(saleContext,{employeeId:p.employeeId,personId:p.personId,employeeName:p.name});
-  if(salesSession?.shiftId===saleContext.shiftId) { Object.assign(salesSession,{employeeId:p.employeeId,personId:p.personId,employeeName:p.name}); persistSalesSession(); updateSalesSessionUI(); }
-  // Не перерисовываем select: при нескольких сотрудниках выбранное значение должно сохраняться.
-  $('saleSessionInfo').textContent=`${saleContext.branchName} · Кассир: ${p.name}`;
-};
+$('saleEmployeeView').onchange=renderSaleCashiers;
 $('salesBranchSelect').onchange=refreshWorkspaceBranch;
 $('salesEmployeeSelect').onchange=()=>{ refreshAdditionalEmployeeOptions(); };
 $('salesAddEmployee').onchange=syncWorkspaceEmployeeUI;
@@ -2888,6 +2891,7 @@ $('salesSelectBtn').onclick=openSalesWorkspace;
 $('startShiftBtn').onclick=async()=>{
   if(workspaceLoading || $('startShiftBtn').disabled) return;
   const branchId=Number($('salesBranchSelect').value),ids=selectedWorkspacePeople();
+  if(!IprintCashier.person(staffAccount)){$('salesWorkspaceStatus').textContent='Сначала привяжите личный логин к карточке сотрудника.';return;}
   const leadId=ids.length>1?Number($('salesLeadEmployee').value||0):null;
   if(!branchId || !ids.length) { $('salesWorkspaceStatus').textContent='Сначала выберите филиал и сотрудника.';return; }
   if(ids.length>1 && !leadId) { $('salesWorkspaceStatus').textContent='Выберите главного по ретуши.';return; }
@@ -2898,10 +2902,10 @@ $('startShiftBtn').onclick=async()=>{
     if(r.error) throw r.error;
     const c=r.data;
     if(noPay){const np=await db.rpc('sales_shift_set_no_pay',{p_shift_id:c.shiftId,p_no_pay:true});if(np.error) alert('Смена открыта, но отметка «Не учитывать смену» не сохранилась: '+np.error.message);}
-    const primaryPersonId=Number($('salesEmployeeSelect').value||0);
-    const cashier=c.participants.find(p=>p.personId===primaryPersonId && p.isActive) || c.participants.find(p=>p.isActive);
+    const primaryPersonId=IprintCashier.person(staffAccount);
+    const cashier=c.participants.find(p=>Number(p.personId)===primaryPersonId && p.isActive);
     if(!cashier) throw new Error('Выбранный сотрудник недоступен. Обновите состав смены.');
-    salesSession={shiftId:c.shiftId,branchId:c.branchId,branchName:c.branchName,employeeId:cashier.employeeId,personId:cashier.personId,employeeName:cashier.name,startedAt:c.startedAt,participants:c.participants,noPay:noPay||(salesSession?.shiftId===c.shiftId&&!!salesSession.noPay)};
+    salesSession={accountUserId:staffAccount.user_id,shiftId:c.shiftId,branchId:c.branchId,branchName:c.branchName,employeeId:cashier.employeeId,personId:cashier.personId,employeeName:cashier.name,startedAt:c.startedAt,participants:c.participants,noPay:noPay||(salesSession?.shiftId===c.shiftId&&!!salesSession.noPay)};
     persistSalesSession(); updateSalesSessionUI(); close('salesWorkspaceModal');
     await showShiftTasks(c.branchId,c.shiftId,cashier.employeeId);
   } catch(e) { $('salesWorkspaceStatus').textContent='Ошибка: '+e.message; }
@@ -3152,7 +3156,7 @@ $('saleClubQuery').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventD
 async function openSaleV4(){try {if(!(await validateSalesSession())){await openSalesWorkspace();return}await loadSalesSetup();saleContext={...salesSession,participants:[...salesSession.participants]};saleDraft=[];window.v4UpsellSeen=new Set();resetSaleLoyalty();$('saleClubEnabled').checked=false;$('salePayment').value='';$('saleDiscountPercent').value='0';v4SplitRows=[];$('splitPaymentBox').style.display='none';$('saleComment').value='';$('saleStatus').textContent='';$('saleSessionInfo').textContent=`${salesSession.branchName} · Кассир: ${salesSession.employeeName}`;$('saleBranchView').value=salesSession.branchName;renderSaleCashiers();$('saleLoyaltyFields').style.display='none';const key='pendingOrder_'+salesSession.branchId;let num=Number(localStorage.getItem(key)||0);if(!num){const nr=await db.rpc('sales_next_order_number',{p_branch_id:salesSession.branchId});if(nr.error){alert('Не удалось получить номер заказа: '+nr.error.message+'\nПроверьте интернет и попробуйте ещё раз.');return}num=Number(nr.data);localStorage.setItem(key,String(num))}window.currentSaleOrderNumber=num;$('saleOrderPreview').textContent='№ '+num+' (предварительный)';renderSaleCatalog();renderSaleDraft();open('saleModal')} catch(e) {alert('Не удалось открыть продажу: '+e.message);} }
 $('salesBtn').onclick=openSaleV4;
 $('closeSale').onclick=()=>close('saleModal');
-$('saveSale').onclick=async()=>{if($('saveSale').disabled)return;if(!saleContext?.shiftId){$('saleStatus').textContent='Сначала начните смену.';return}if(!saleDraft.length){$('saleStatus').textContent='Добавьте хотя бы одну позицию.';return}const payment=$('salePayment').value;if(!payment){$('saleStatus').textContent='Выберите способ оплаты.';return}const gross=saleGrossTotal(),discountPct=Math.min(100,Math.max(0,Number($('saleDiscountPercent').value)||0)),after=Math.round((gross-Math.round(gross*discountPct)/100)*100)/100,points=salePointsUsed(),max=Math.round(after*.3*100)/100;if(points>max){$('saleStatus').textContent='Нельзя списать больше 30% суммы после скидки: '+salesMoney(max);return}let payments=[];if(payment==='split'){payments=v4SplitRows.filter(x=>Number(x.amount)>0).map(x=>({method:x.method,amount:Math.round(Number(x.amount)*100)/100}));if(payments.length<2||Math.abs(payments.reduce((a,x)=>a+x.amount,0)-Math.max(0,after-points))>.01){$('saleStatus').textContent='Для раздельной оплаты распределите всю сумму заказа.';return}}if((payment==='bank_account'||payments.some(x=>x.method==='bank_account'))&&!$('saleClubEnabled').checked&&!confirm('Оплата «Расчётный счёт» без клубной карты не попадёт в «Долги клиентов». Продолжить без карты?'))return;let loyaltyName=null,loyaltyPhone=null;if($('saleClubEnabled').checked){loyaltyName=$('saleClubNewName').value.trim();loyaltyPhone=$('saleClubNewPhone').value.trim();if(!saleLoyaltyCustomerId&&(!loyaltyName||!loyaltyPhone)){$('saleStatus').textContent='Для клубной карты выберите клиента или укажите имя и полный номер.';return}if(points>0&&!saleLoyaltyCustomerId){$('saleStatus').textContent='Для списания баллов сначала найдите существующего клиента.';return}}const noVariant=saleDraft.find(x=>salesCatalog.find(c=>Number(c.id)===Number(x.catalogId))?.variants?.length&&!x.variantId);if(noVariant){$('saleStatus').textContent='Выберите размер и цвет: «'+(salesCatalog.find(c=>Number(c.id)===Number(noVariant.catalogId))?.name||'')+'».';return}const items=saleDraft.map(x=>({catalog_id:x.catalogId,quantity:Number(x.quantity),unit_price:Number(x.unitPrice),...(x.variantId?{variant_material_id:Number(x.variantId)}:{})}));if(items.some(x=>!(x.quantity>0)||!(x.unit_price>=0))){$('saleStatus').textContent='Проверьте количество и цены.';return}const context={...saleContext};const activeParticipants=context.participants.filter(p=>p.isActive);const selectedCashierId=Number($('saleEmployeeView').value||0);if(activeParticipants.length>1&&!selectedCashierId){$('saleStatus').textContent='Выберите кассира для этой продажи.';$('saleEmployeeView').focus();return;}if(activeParticipants.length>1){const selectedCashier=activeParticipants.find(p=>Number(p.employeeId)===selectedCashierId);if(!selectedCashier){$('saleStatus').textContent='Выберите кассира из участников смены.';$('saleEmployeeView').focus();return;}context.employeeId=selectedCashier.employeeId;context.personId=selectedCashier.personId;context.employeeName=selectedCashier.name;}else{const onlyCashier=activeParticipants[0];if(!onlyCashier){$('saleStatus').textContent='Не найден сотрудник для оформления продажи.';return;}context.employeeId=onlyCashier.employeeId;context.personId=onlyCashier.personId;context.employeeName=onlyCashier.name;}$('saveSale').disabled=true;$('saleEmployeeView').disabled=true;try {$('saleStatus').textContent='Оформляю продажу…';const r=await db.rpc('sales_create_sale',{p_shift_id:context.shiftId,p_employee_id:context.employeeId,p_payment_method:payment,p_comment:$('saleComment').value.trim()||null,p_items:items,p_loyalty_customer_id:saleLoyaltyCustomerId,p_loyalty_points:points,p_loyalty_name:loyaltyName,p_loyalty_phone:loyaltyPhone,p_loyalty_comment:$('saleClubComment').value.trim()||null,p_order_number:window.currentSaleOrderNumber,p_discount_percent:discountPct,p_payments:payments});if(r.error)throw r.error;const orderNo=r.data;localStorage.removeItem('pendingOrder_'+context.branchId);window.currentSaleOrderNumber=null;$('saleOrderPreview').textContent='№ '+orderNo;$('saleStatus').textContent=`Продажа №${orderNo} оформлена.`;if(typeof v5Toast==='function'&&!(typeof pickupLastResult!=='undefined'&&pickupLastResult)&&orderNo!=null)v5Toast(`Продажа №${orderNo} оформлена.`);saleDraft=[];close('saleModal');await openSaleV4()}catch(e){$('saleStatus').textContent='Ошибка: '+e.message;}finally{$('saveSale').disabled=false;$('saleEmployeeView').disabled=false;}};
+$('saveSale').onclick=async()=>{if($('saveSale').disabled)return;if(!IprintCashier.bound(staffAccount,saleContext)){$('saleStatus').textContent='Аккаунт или кассир изменился. Откройте продажу заново под своим логином.';return}if(!saleContext?.shiftId){$('saleStatus').textContent='Сначала начните смену.';return}if(!saleDraft.length){$('saleStatus').textContent='Добавьте хотя бы одну позицию.';return}const payment=$('salePayment').value;if(!payment){$('saleStatus').textContent='Выберите способ оплаты.';return}const gross=saleGrossTotal(),discountPct=Math.min(100,Math.max(0,Number($('saleDiscountPercent').value)||0)),after=Math.round((gross-Math.round(gross*discountPct)/100)*100)/100,points=salePointsUsed(),max=Math.round(after*.3*100)/100;if(points>max){$('saleStatus').textContent='Нельзя списать больше 30% суммы после скидки: '+salesMoney(max);return}let payments=[];if(payment==='split'){payments=v4SplitRows.filter(x=>Number(x.amount)>0).map(x=>({method:x.method,amount:Math.round(Number(x.amount)*100)/100}));if(payments.length<2||Math.abs(payments.reduce((a,x)=>a+x.amount,0)-Math.max(0,after-points))>.01){$('saleStatus').textContent='Для раздельной оплаты распределите всю сумму заказа.';return}}if((payment==='bank_account'||payments.some(x=>x.method==='bank_account'))&&!$('saleClubEnabled').checked&&!confirm('Оплата «Расчётный счёт» без клубной карты не попадёт в «Долги клиентов». Продолжить без карты?'))return;let loyaltyName=null,loyaltyPhone=null;if($('saleClubEnabled').checked){loyaltyName=$('saleClubNewName').value.trim();loyaltyPhone=$('saleClubNewPhone').value.trim();if(!saleLoyaltyCustomerId&&(!loyaltyName||!loyaltyPhone)){$('saleStatus').textContent='Для клубной карты выберите клиента или укажите имя и полный номер.';return}if(points>0&&!saleLoyaltyCustomerId){$('saleStatus').textContent='Для списания баллов сначала найдите существующего клиента.';return}}const noVariant=saleDraft.find(x=>salesCatalog.find(c=>Number(c.id)===Number(x.catalogId))?.variants?.length&&!x.variantId);if(noVariant){$('saleStatus').textContent='Выберите размер и цвет: «'+(salesCatalog.find(c=>Number(c.id)===Number(noVariant.catalogId))?.name||'')+'».';return}const items=saleDraft.map(x=>({catalog_id:x.catalogId,quantity:Number(x.quantity),unit_price:Number(x.unitPrice),...(x.variantId?{variant_material_id:Number(x.variantId)}:{})}));if(items.some(x=>!(x.quantity>0)||!(x.unit_price>=0))){$('saleStatus').textContent='Проверьте количество и цены.';return}const cashier=IprintCashier.participant(staffAccount,saleContext);if(!cashier){$('saleStatus').textContent='Подключитесь к общей смене под своим логином.';return}const context={...saleContext,employeeId:cashier.employeeId,personId:cashier.personId,employeeName:cashier.name};$('saveSale').disabled=true;$('saleEmployeeView').disabled=true;try {$('saleStatus').textContent='Оформляю продажу…';const r=await db.rpc('sales_create_sale',{p_shift_id:context.shiftId,p_employee_id:context.employeeId,p_payment_method:payment,p_comment:$('saleComment').value.trim()||null,p_items:items,p_loyalty_customer_id:saleLoyaltyCustomerId,p_loyalty_points:points,p_loyalty_name:loyaltyName,p_loyalty_phone:loyaltyPhone,p_loyalty_comment:$('saleClubComment').value.trim()||null,p_order_number:window.currentSaleOrderNumber,p_discount_percent:discountPct,p_payments:payments});if(r.error)throw r.error;const orderNo=r.data;localStorage.removeItem('pendingOrder_'+context.branchId);window.currentSaleOrderNumber=null;$('saleOrderPreview').textContent='№ '+orderNo;$('saleStatus').textContent=`Продажа №${orderNo} оформлена.`;if(typeof v5Toast==='function'&&!(typeof pickupLastResult!=='undefined'&&pickupLastResult)&&orderNo!=null)v5Toast(`Продажа №${orderNo} оформлена.`);saleDraft=[];close('saleModal');await openSaleV4()}catch(e){$('saleStatus').textContent='Ошибка: '+e.message;}finally{$('saveSale').disabled=false;$('saleEmployeeView').disabled=true;}};
 
 async function renderSalesCatalogPrice(){
   const q=($('salesCatalogPriceSearch').value||'').trim().toLowerCase();
@@ -4568,7 +4572,7 @@ const kqBaseValidate=validateSalesSession;
 validateSalesSession=async function(){
   try{const ok=await kqWithTimeout(kqBaseValidate(),12000);if(kassaOffline&&!kqQueueCount())kqSetOffline(false);return ok}
   catch(e){
-    if(kqIsNetErr(e)&&salesSession?.shiftId&&salesSession.participants?.length){kqSetOffline(true);return true}
+    if(kqIsNetErr(e)&&salesSession?.shiftId&&IprintCashier.bound(staffAccount,salesSession)){kqSetOffline(true);return true}
     throw e;
   }
 };
@@ -7067,5 +7071,10 @@ $('staffSave').onclick=async()=>{
 <script src="estimate-pdf.js?v=20261120-receipts"></script>
 <link rel="stylesheet" href="sales-workflow.css?v=1">
 <script src="sales-workflow.js?v=1"></script>
+<script>
+window.addEventListener('iprint:account-changed',()=>{
+  salesSession=null;saleContext=null;saleDraft=[];workspaceShift=null;workspaceRequest++;persistSalesSession();updateSalesSessionUI();close('saleModal');close('salesWorkspaceModal');
+});
+</script>
 </body>
 </html>
