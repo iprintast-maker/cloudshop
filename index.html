@@ -2958,7 +2958,8 @@ function saleCatalogMatches(item,query){const q=normalizeSaleSearchText(query);i
 window.saleCatOpen=window.saleCatOpen||new Set();
 function renderSaleCatalog(){const q=($('saleCatalogSearch').value||'').trim();const cats=salesCatalog.filter(x=>saleCatalogMatches(x,q));if(!cats.length){$('saleCatalogList').innerHTML='<div class="status">Ничего не найдено.</div>';return}const groups={};cats.forEach(x=>{const c=(x.category||'Без категории').trim()||'Без категории';(groups[c]=groups[c]||[]).push(x)});const entries=Object.entries(groups).sort((a,b)=>a[0].localeCompare(b[0],'ru'));const item=x=>`<div class="sale-catalog-item" onclick="addSaleCatalogItem(${x.id})" ondblclick="openSalesProductInfo(${x.id})"><div><b>${esc(x.name)}</b><small>${esc(x.item_type==='service'?'Услуга':'Товар')}${x.sku?' · '+esc(x.sku):''}</small>${saleStockLine(x)}</div><span class="sale-catalog-price">${salesMoney(x.price)}${saleUnitSuffix(x)}</span></div>`;$('saleCatalogList').innerHTML=entries.map(([c,items])=>{const open=!!q||saleCatOpen.has(c);return `<div class="sale-cat-group"><button type="button" class="secondary sale-cat-head" data-cat="${esc(c)}" onclick="toggleSaleCatGroup(this)"><span class="cat-arr">${open?'▾':'▸'}</span> ${esc(c)}<span class="sale-cat-count">${items.length} поз.</span></button><div class="sale-cat-body" style="display:${open?'block':'none'}">${items.map(item).join('')}</div></div>`}).join('')}
 window.toggleSaleCatGroup=btn=>{const c=btn.dataset.cat;const body=btn.nextElementSibling;const show=body.style.display==='none';body.style.display=show?'block':'none';btn.querySelector('.cat-arr').textContent=show?'▾':'▸';if(show)saleCatOpen.add(c);else saleCatOpen.delete(c)};
-async function maybeUpsell(source,qty){for(const rule of v4Upsells.filter(r=>Number(r.source_catalog_id)===Number(source.id))){const min=Number(rule.min_quantity||1),max=rule.max_quantity==null?Infinity:Number(rule.max_quantity);if(qty<min||qty>max)continue;const key=rule.id+':'+source.id;if(window.v4UpsellSeen?.has(key))continue;window.v4UpsellSeen=window.v4UpsellSeen||new Set();window.v4UpsellSeen.add(key);const suggested=salesCatalog.find(x=>Number(x.id)===Number(rule.suggested_catalog_id));if(!suggested)continue;const yes=confirm(`${rule.question||'Предложить дополнительный товар?'}\n\n${suggested.name} — ${salesMoney(suggested.price)}`);if(yes){const ex=saleDraft.find(x=>Number(x.catalogId)===Number(suggested.id));if(ex)ex.quantity=Number(ex.quantity)+1;else saleDraft.push({catalogId:suggested.id,quantity:1,unitPrice:v4Price(suggested,1)})}}renderSaleDraft()}
+async function maybeUpsell(source,qty){if(!source)return;for(const rule of v4Upsells.filter(r=>Number(r.source_catalog_id)===Number(source.id))){const min=Number(rule.min_quantity||1),max=rule.max_quantity==null?Infinity:Number(rule.max_quantity);if(qty<min||qty>max)continue;const key=rule.id+':'+source.id;if(window.v4UpsellSeen?.has(key))continue;window.v4UpsellSeen=window.v4UpsellSeen||new Set();window.v4UpsellSeen.add(key);const suggested=salesCatalog.find(x=>Number(x.id)===Number(rule.suggested_catalog_id));if(suggested)iprintUpsellNotice(rule.question,suggested.name);}}
+
 window.addSaleCatalogItem=async id=>{const x=salesCatalog.find(y=>Number(y.id)===Number(id));if(!x)return;let existing=x.variants?.length?null:saleDraft.find(y=>Number(y.catalogId)===Number(id));if(existing){existing.quantity=Number(existing.quantity||0)+1;existing.unitPrice=v4Price(x,existing.quantity)}else saleDraft.push({catalogId:x.id,quantity:1,unitPrice:v4Price(x,1)});renderSaleDraft();await maybeUpsell(x,existing?.quantity||1)};
 // Варианты позиции: размер и цвет. Новый способ — дочерние материалы (parent_id, var_size, var_color) у материала,
 // чья норма стоит на позиции прайса (stock_variants.sql). Старый — материалы с variant_catalog_id (одна подпись).
@@ -3305,7 +3306,7 @@ if(!salesSession?.branchId){
   $('movementSummary').textContent='Нет выбранного филиала.';
   $('movementRows').innerHTML='<div class="status">Сначала выберите филиал.</div>';
   return;
-}try{const{sales,items}=await loadSalesForRange(start,end,Number(salesSession.branchId));const active=sales.filter(x=>x.status==='completed'&&x.payment_status!=='unpaid'),total=active.reduce((a,x)=>a+Number(x.total),0);$('movementSummary').textContent=`Продаж: ${active.length} · Выручка: ${salesMoney(total)}${salesSession?.branchName?' · '+salesSession.branchName:''}`;$('movementRows').innerHTML=sales.length?`<table class="customer-table"><thead><tr><th>№</th><th>Время</th><th>Кассир</th><th>Позиции</th><th>Оплата</th><th>Сумма</th><th>Статус</th><th></th></tr></thead><tbody>${sales.map(x=>{const its=items.filter(i=>i.sale_id===x.id),split=x.payment_method==='split';const pay=split?'<span class="payment-pill">Раздельная</span>':(V4_PAY_LABELS[x.payment_method]||x.payment_method);let cls=x.payment_method==='link'&&x.payment_status==='pending'?'pending-link':x.payment_method==='link'&&x.payment_status==='paid'&&x.status==='completed'?'paid-link':x.payment_status==='unpaid'?'unpaid-link':'';const receipt=`<button class="secondary small" onclick="printSaleReceipt(${x.id})">🧾 Чек</button>`;const retDel=x.status==='completed'&&salesSession?.shiftId?`<button class="danger small" onclick="returnSale(${x.id})">Возврат</button> <button class="secondary small" onclick="deleteSale(${x.id})">Удалить продажу</button>`:'';const actions=x.payment_method==='link'&&x.status==='completed'&&x.payment_status!=='paid'?(x.payment_status==='pending'?`<button class="primary small" onclick="markLinkPaid(${x.id})">Оплачено</button> <button class="secondary small" onclick="markLinkUnpaid(${x.id})">Не оплачено</button>`:'Не оплачено'):retDel;return `<tr class="${cls}"><td><b>№${x.order_number||x.id}</b>${/^Сайт, заказ/.test(x.comment||'')?'<br><span class="site-badge">🌐 С сайта</span>':''}</td><td>${new Date(x.created_at).toLocaleString('ru-RU')}</td><td>${esc(x.sales_employees?.name||'')}</td><td>${its.map(i=>`${esc(saleItemLabel(i))} × ${i.quantity}`).join('<br>')}</td><td>${pay}</td><td>${salesMoney(x.total)}${Number(x.discount_amount||0)>0?`<div class="status">Скидка −${salesMoney(x.discount_amount)}</div>`:''}</td><td>${x.status==='deleted'?'Удалена':x.payment_method==='link'&&x.payment_status==='unpaid'?'Не оплачено':x.status==='returned'?'Возврат':x.payment_method==='link'?(x.payment_status==='pending'?'Ожидает оплаты':'Оплачено'):'Продажа'}</td><td>${receipt} ${actions}</td></tr>`}).join('')}</tbody></table>`:'<div class="status">Продаж нет.</div>'}catch(e){$('movementSummary').textContent='Ошибка: '+e.message}}
+}try{const{sales,items}=await loadSalesForRange(start,end,Number(salesSession.branchId));const active=sales.filter(x=>x.status==='completed'&&x.payment_status!=='unpaid'),total=active.reduce((a,x)=>a+Number(x.total),0);$('movementSummary').textContent=`Продаж: ${active.length} · Выручка: ${salesMoney(total)}${salesSession?.branchName?' · '+salesSession.branchName:''}`;$('movementRows').innerHTML=sales.length?`<table class="customer-table"><thead><tr><th>№</th><th>Время</th><th>Кассир</th><th>Позиции</th><th>Оплата</th><th>Сумма</th><th>Статус</th>${window.iprintWorkflowReady?'<th>Кассовый чек</th>':''}<th></th></tr></thead><tbody>${sales.map(x=>{const its=items.filter(i=>i.sale_id===x.id),split=x.payment_method==='split';const pay=split?'<span class="payment-pill">Раздельная</span>':(V4_PAY_LABELS[x.payment_method]||x.payment_method);let cls=x.payment_method==='link'&&x.payment_status==='pending'?'pending-link':x.payment_method==='link'&&x.payment_status==='paid'&&x.status==='completed'?'paid-link':x.payment_status==='unpaid'?'unpaid-link':'';const receipt=`<button class="secondary small" onclick="printSaleReceipt(${x.id})">🧾 Товарный чек PDF</button>`;const retDel=x.status==='completed'&&salesSession?.shiftId?`<button class="danger small" onclick="returnSale(${x.id})">Возврат</button> <button class="secondary small" onclick="deleteSale(${x.id})">Удалить продажу</button>`:'';const actions=x.payment_method==='link'&&x.status==='completed'&&x.payment_status!=='paid'?(x.payment_status==='pending'?`<button class="primary small" onclick="markLinkPaid(${x.id})">Оплачено</button> <button class="secondary small" onclick="markLinkUnpaid(${x.id})">Не оплачено</button>`:'Не оплачено'):retDel;return `<tr class="${cls}" data-sale="${x.id}" onclick="if(window.iprintWorkflowReady&&!event.target.closest('button'))iprintEditSale(${x.id})"><td><b>№${x.order_number||x.id}</b>${/^Сайт, заказ/.test(x.comment||'')?'<br><span class="site-badge">🌐 С сайта</span>':''}</td><td>${new Date(x.created_at).toLocaleString('ru-RU')}</td><td>${esc(x.sales_employees?.name||'')}</td><td>${its.map(i=>`${esc(saleItemLabel(i))} × ${i.quantity}`).join('<br>')}</td><td>${pay}</td><td>${salesMoney(x.total)}${Number(x.discount_amount||0)>0?`<div class="status">Скидка −${salesMoney(x.discount_amount)}</div>`:''}</td><td>${x.status==='deleted'?'Удалена':x.payment_method==='link'&&x.payment_status==='unpaid'?'Не оплачено':x.status==='returned'?'Возврат':x.payment_method==='link'?(x.payment_status==='pending'?'Ожидает оплаты':'Оплачено'):'Продажа'}</td>${window.iprintWorkflowReady?`<td>${x.cash_receipt_issued?'<span title="Кассовый чек выдан" aria-label="Кассовый чек выдан">✅</span>':''}</td>`:''}<td>${window.iprintWorkflowReady?`<button class="secondary small" onclick="iprintEditSale(${x.id})">Открыть / изменить</button> ${!x.cash_receipt_issued?`<button class="secondary small" onclick="iprintSetReceipt(${x.id})">Чек выдан</button>`:''}`:''} ${receipt} ${actions}</td></tr>`}).join('')}</tbody></table>`:'<div class="status">Продаж нет.</div>'}catch(e){$('movementSummary').textContent='Ошибка: '+e.message}}
 $('salesMovementBtn').onclick=openMovement;$('movementRefresh').onclick=renderMovement;$('movementDate').onchange=renderMovement;$('closeMovement').onclick=()=>close('salesMovementModal');
 
 // При закрытии смены проверяем задания и не закрываем их без подтверждения.
@@ -3821,7 +3822,7 @@ $('saveSale').onclick=async()=>{
     pickupRpcOverride=a=>v5Rpc('sales_hold_pickup_v2',{p_shift_id:a.p_shift_id,p_employee_id:a.p_employee_id,p_items:a.p_items,p_discount_percent:a.p_discount_percent,p_comment:a.p_comment,p_order_number:a.p_order_number,p_customer_id:a.p_loyalty_customer_id,p_client_name:contact||(club?a.p_loyalty_name:null),p_client_phone:isPhone?contact:(club?a.p_loyalty_phone:null),p_client_order_ref:ref||null}).then(r=>{if(!r.error)pickupLastResult={kind:'hold',no:r.data};return r});
   }else if(salePickup){
     const o=salePickup;
-    pickupRpcOverride=a=>{const x={...a,p_pickup_id:o.id};delete x.p_order_number;return v5Rpc('sales_pay_pickup',x).then(r=>{if(!r.error)pickupLastResult={kind:'pay',no:r.data};return r})};
+    pickupRpcOverride=a=>{const x={...a,p_pickup_id:o.id};delete x.p_order_number;return v5Rpc(window.iprintWorkflowReady?'iprint_pay_pickup':'sales_pay_pickup',window.iprintWorkflowReady?{...x,p_cash_receipt_issued:!!$('saleCashReceipt')?.checked}:x).then(r=>{if(!r.error)pickupLastResult={kind:'pay',no:r.data};return r})};
   }
   try{await v5BaseSave()}finally{pickupRpcOverride=null}
   if(pickupLastResult){
@@ -6089,7 +6090,7 @@ async function openBigReport(){
   // Смена открыта: сразу подтягиваем цифры кассы в строку дня, чтобы белые клетки можно было заполнять в любой момент.
   if(!r.error&&salesSession?.shiftId===sid&&r.data?.mode!=='manual'){
     const f=await db.rpc('report_fill_shift',{p_shift_id:sid,p_mode:'auto'});
-    if(!f.error&&f.data)r=f;
+    if(f.error){alert('Не удалось перенести данные смены в общий отчёт: '+f.error.message);return}if(f.data)r=f;
   }
   if(r.error){
     if(!salesSession?.shiftId){if(shared.length){grOpenStaff(null,null,shared);return}alert('Не удалось открыть отчет: '+r.error.message);return}
@@ -6425,7 +6426,7 @@ renderSummary=function(d,rg){
 </script>
 <!-- Чеки филиалов (2026-10-18): свободная таблица, свои строки у каждого филиала, админ видит все -->
 <div class="modal" id="checksModal"><div class="dialog" style="max-width:min(1400px,100%)">
-  <h2 style="margin-top:0">Чеки</h2>
+  <h2 style="margin-top:0">Заказы в работе</h2>
   <div class="ck-top">
     <div class="field"><label>Филиал</label><select id="ckBranch"></select></div>
     <div class="field ck-search"><label>Поиск</label><input id="ckSearch" type="search" placeholder="Товар, контакт, номер заказа…"></div>
@@ -6517,7 +6518,7 @@ function ckDraw(){
   const all=ck.branch==='all',q=$('ckSearch').value.trim().toLowerCase();
   $('ckHead').innerHTML='<tr>'+(all?'<th>Филиал</th>':'')+CK_FIELDS.map(f=>`<th style="width:${f[3]}px">${f[1]}</th>`).join('')+'<th style="width:40px"></th></tr>';
   const rows=q?ck.rows.filter(x=>CK_FIELDS.some(f=>String(x[f[0]]||'').toLowerCase().includes(q))||(all&&ckBn(x.branch_id).toLowerCase().includes(q))):ck.rows;
-  if(!rows.length){$('ckBody').innerHTML=`<tr><td colspan="9" class="ck-empty">${ck.rows.length?'Ничего не найдено.':'Чеков пока нет. Нажмите «+ Добавить строку».'}</td></tr>`;return}
+  if(!rows.length){$('ckBody').innerHTML=`<tr><td colspan="9" class="ck-empty">${ck.rows.length?'Ничего не найдено.':'Заказов в работе пока нет. Нажмите «+ Добавить строку».'}</td></tr>`;return}
   $('ckBody').innerHTML=rows.map(x=>`<tr data-id="${x.id}"${ck.dirty.has(x.id)?' class="dirty"':''}>${all?`<td class="ck-branch">${esc(ckBn(x.branch_id))}</td>`:''}${CK_FIELDS.map(f=>{
     const v=x[f[0]]??'';
     if(f[2]==='date')return `<td><input type="date" data-f="${f[0]}" value="${esc(v)}"></td>`;
@@ -6572,9 +6573,9 @@ $('ckBranch').onchange=ckLoad;
 $('ckSearch').oninput=ckDraw;
 $('closeChecks').onclick=async()=>{await ckFlush();if(ck.dirty.size&&!confirm('Не все изменения сохранились. Закрыть всё равно?'))return;close('checksModal')};
 window.addEventListener('beforeunload',e=>{if(ck.dirty.size){ckFlush();e.preventDefault();e.returnValue=''}});
-// «Добавить в чеки» в окне продажи: после оформления создаём строку в «Чеках» филиала смены.
+// «Добавить в заказы в работе» в окне продажи: после оформления создаём строку в «Заказах в работе» филиала смены.
 (()=>{
-  $('saleComment').closest('.field').insertAdjacentHTML('afterend',`<div class="sale-ck-box" id="saleCkBox"><label class="sale-ck-toggle"><input type="checkbox" id="saleCkOn"> <b>Добавить в чеки</b></label><div id="saleCkFields" class="row" style="display:none;margin-top:8px"><div class="field"><label>Срок изготовления *</label><input id="saleCkDeadline" maxlength="200" placeholder="Например: 1-2 дня или 3 часа"></div><div class="field"><label>Контакт клиента *</label><input id="saleCkContact" maxlength="500" placeholder="Telegram, Max или телефон"></div></div></div>`);
+  $('saleComment').closest('.field').insertAdjacentHTML('afterend',`<div class="sale-ck-box" id="saleCkBox"><label class="sale-ck-toggle"><input type="checkbox" id="saleCkOn"> <b>Добавить в заказы в работе</b></label><div id="saleCkFields" class="row" style="display:none;margin-top:8px"><div class="field"><label>Срок изготовления *</label><input id="saleCkDeadline" maxlength="200" placeholder="Например: 1-2 дня или 3 часа"></div><div class="field"><label>Контакт клиента *</label><input id="saleCkContact" maxlength="500" placeholder="Telegram, Max или телефон"></div></div></div>`);
   document.head.insertAdjacentHTML('beforeend','<style>.sale-ck-box{margin-top:10px;padding:10px 12px;border:1px solid var(--line,#ddd);border-radius:10px}.sale-ck-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;margin:0}.sale-ck-toggle input{width:18px;height:18px;margin:0}</style>');
   const sync=()=>{$('saleCkFields').style.display=$('saleCkOn').checked?'':'none'};
   $('saleCkOn').onchange=()=>{sync();if($('saleCkOn').checked){if(!$('saleCkContact').value.trim()&&$('salePickupContact')?.value.trim())$('saleCkContact').value=$('salePickupContact').value.trim();$('saleCkDeadline').focus()}};
@@ -6585,8 +6586,8 @@ window.addEventListener('beforeunload',e=>{if(ck.dirty.size){ckFlush();e.prevent
   $('saveSale').onclick=async function(){
     if($('saveSale').disabled)return;
     if($('saleCkOn').checked){
-      if(!$('saleCkDeadline').value.trim()){$('saleStatus').textContent='Для «Добавить в чеки» укажите срок изготовления.';$('saleCkDeadline').focus();return}
-      if(!contact()){$('saleStatus').textContent='Для «Добавить в чеки» укажите контакт клиента.';$('saleCkContact').focus();return}
+      if(!$('saleCkDeadline').value.trim()){$('saleStatus').textContent='Для «Добавить в заказы в работе» укажите срок изготовления.';$('saleCkDeadline').focus();return}
+      if(!contact()){$('saleStatus').textContent='Для «Добавить в заказы в работе» укажите контакт клиента.';$('saleCkContact').focus();return}
     }
     return baseSave.apply(this,arguments);
   };
@@ -6594,7 +6595,7 @@ window.addEventListener('beforeunload',e=>{if(ck.dirty.size){ckFlush();e.prevent
   const pendRead=()=>{try{return JSON.parse(localStorage.getItem(PEND)||'[]')}catch(e){return []}};
   const pendWrite=q=>{try{q.length?localStorage.setItem(PEND,JSON.stringify(q)):localStorage.removeItem(PEND)}catch(e){}};
   async function put(row){const r=await db.from('branch_checks').insert(row);return !r.error}
-  // Без связи строка ждёт в браузере и уходит в «Чеки», когда связь вернётся.
+  // Без связи строка ждёт в браузере и уходит в «Заказы в работе», когда связь вернётся.
   async function flush(){
     const q=pendRead();if(!q.length)return;const left=[];
     for(const row of q){let ok=false;try{ok=await put(row)}catch(e){}if(!ok)left.push(row)}
@@ -6614,7 +6615,7 @@ window.addEventListener('beforeunload',e=>{if(ck.dirty.size){ckFlush();e.prevent
       if(!r?.error&&base.branch_id){
         const row={...base,order_no:r.data!=null?String(r.data):''};reset();
         put(row).then(ok=>{if(!ok)pendWrite([...pendRead(),row]);else flush()}).catch(()=>pendWrite([...pendRead(),row]));
-        if(typeof v5Toast==='function')setTimeout(()=>v5Toast('Заказ'+(row.order_no?' №'+row.order_no:'')+' добавлен в «Чеки».'),300);
+        if(typeof v5Toast==='function')setTimeout(()=>v5Toast('Заказ'+(row.order_no?' №'+row.order_no:'')+' добавлен в «Заказы в работе».'),300);
       }
       return r;
     });
@@ -6624,7 +6625,7 @@ window.addEventListener('beforeunload',e=>{if(ck.dirty.size){ckFlush();e.prevent
 })();
 (()=>{
   const ref=$('bigReportBtn');
-  ref.insertAdjacentHTML('afterend','<button id="checksBtn" class="secondary tile tile-sm"><svg class="ic" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5h12v17l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4-2 1.4z"/><path d="M9 8.5h6M9 12h6M9 15.5h4"/></svg><span class="tile-name">Чеки</span></button>');
+  ref.insertAdjacentHTML('afterend','<button id="checksBtn" class="secondary tile tile-sm"><svg class="ic" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5h12v17l-2-1.4-2 1.4-2-1.4-2 1.4-2-1.4-2 1.4z"/><path d="M9 8.5h6M9 12h6M9 15.5h4"/></svg><span class="tile-name">Заказы в работе</span></button>');
   $('checksBtn').onclick=openChecks;
 })();
 </script>
@@ -6699,7 +6700,7 @@ $('staffSave').onclick=async()=>{
 <!-- Заказы с сайта foto-26.ru (2026-10-19): пометка в продажах и уведомление на смене -->
 <style>.site-badge{display:inline-block;margin-top:3px;padding:1px 7px;border-radius:999px;background:#FFE14D;color:#222;font-size:12px;font-weight:600;white-space:nowrap}</style>
 <script>
-// Сайт пробивает оплаченные заказы в открытую смену филиала с комментарием «Сайт, заказ №…» и добавляет их в «Чеки».
+// Сайт пробивает оплаченные заказы в открытую смену филиала с комментарием «Сайт, заказ №…» и добавляет их в «Заказы в работе».
 // Раз в минуту проверяем смену: новая такая продажа — звук и сообщение сотруднику.
 (()=>{
   const seen=new Set();let shift=null,first=true;
@@ -6713,7 +6714,7 @@ $('staffSave').onclick=async()=>{
     if(first){first=false;return}
     if(!fresh.length)return;
     beep();
-    const msg=fresh.map(x=>`🌐 Пробит заказ с сайта: продажа №${x.order_number||x.id}, ${String(x.comment).replace(/^Сайт, /,'')}, ${salesMoney(x.total)}. Добавлен в «Чеки».`).join(' ');
+    const msg=fresh.map(x=>`🌐 Пробит заказ с сайта: продажа №${x.order_number||x.id}, ${String(x.comment).replace(/^Сайт, /,'')}, ${salesMoney(x.total)}. Добавлен в «Заказы в работе».`).join(' ');
     if(typeof v5Toast==='function')v5Toast(msg);else alert(msg);
   }
   setTimeout(()=>check().catch(()=>{}),5000);setInterval(()=>check().catch(()=>{}),60000);
@@ -7063,6 +7064,8 @@ $('staffSave').onclick=async()=>{
   setInterval(()=>{if(isAdmin&&!isDev)load().then(()=>{popQueue=rows.filter(u=>u.status==='offered'&&!later(u.id)&&u.id!==popCur?.id);showNext()}).catch(()=>{})},10*60*1000);
 })();
 </script>
-<script src="estimate-pdf.js"></script>
+<script src="estimate-pdf.js?v=20261120-receipts"></script>
+<link rel="stylesheet" href="sales-workflow.css?v=1">
+<script src="sales-workflow.js?v=1"></script>
 </body>
 </html>

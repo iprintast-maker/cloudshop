@@ -35,9 +35,9 @@
       ctx.fillStyle='#172033';ctx.fillRect(0,0,560,10);
       if(logo)ctx.drawImage(logo,36,22,56,56);
       text('iПринт',logo?108:36,55,25,'#172033','left',true);
-      text('ПРЕДВАРИТЕЛЬНЫЙ РАСЧЁТ',36,84,13,'#53647e');
+      text(data.receipt?'ТОВАРНЫЙ ЧЕК':'ПРЕДВАРИТЕЛЬНЫЙ РАСЧЁТ',36,84,13,'#53647e');
       text(data.date,524,55,12,'#53647e','right');
-      text('Оплата не произведена',36,110,12,'#53647e');y=134;
+      text(data.receipt?(data.paymentNote||''):'Оплата не произведена',36,110,12,'#53647e');y=134;
     }
     function room(h){if(y+h>724){page();text('Продолжение расчёта',36,y,12,'#53647e');y+=26}}
     function wrapped(s,width,size=14,bold=false){
@@ -52,10 +52,10 @@
     }
     function paragraph(s,size=13,color='#53647e'){for(const row of wrapped(s,488,size)){room(22);text(row,36,y,size,color);y+=20}}
     page();
-    if(data.number)paragraph('Расчёт № '+data.number);
+    if(data.number)paragraph((data.receipt?'Товарный чек № ':'Расчёт № ')+data.number);
     if(data.client)paragraph('Клиент: '+data.client,14,'#172033');
     if(data.branch)paragraph('Филиал: '+data.branch);
-    if(data.employee)paragraph('Подготовил(а): '+data.employee);
+    if(data.employee)paragraph((data.receipt?'Кассир: ':'Подготовил(а): ')+data.employee);
     y+=8;line();
     data.items.forEach((item,i)=>{
       room(62);text(String(i+1).padStart(2,'0'),36,y,12,'#8793a6');
@@ -66,9 +66,11 @@
     room(136);
     text('Сумма',36,y,14);text(money(data.gross),524,y,14,'#172033','right');y+=26;
     if(data.discount>0){text(`Скидка ${data.percent}%`,36,y,14);text('-'+money(data.discount),524,y,14,'#172033','right');y+=30}
+    if(data.points>0){text('Списано баллов',36,y,14);text('-'+money(data.points),524,y,14,'#172033','right');y+=26}
     ctx.fillStyle='#eef3ff';ctx.fillRect(36,y-7,488,58);text('ИТОГО',52,y+28,18,'#172033','left',true);text(money(data.total),508,y+28,25,'#172033','right',true);y+=79;
     if(data.comment){paragraph('Комментарий',13,'#172033');paragraph(data.comment);y+=10}
-    room(46);paragraph('Предварительная стоимость заказа.');paragraph('Не является кассовым чеком.');
+    if(data.receipt&&data.payments?.length){room(30);paragraph('Оплата',14,'#172033');for(const p of data.payments)paragraph(p.name+': '+money(p.amount));}
+    room(46);if(!data.receipt)paragraph('Предварительная стоимость заказа.');paragraph('Не является кассовым чеком.');
     pages.forEach((c,i)=>{ctx=c.getContext('2d');text(`${i+1} / ${pages.length}`,524,765,11,'#8793a6','right')});
     return pdfFromPages(pages);
   }
