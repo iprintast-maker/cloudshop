@@ -32,6 +32,7 @@
   }catch(error){alert('Не удалось скачать товарный чек: '+error.message);}
  };
  window.iprintSetReceipt=async id=>{if(!window.iprintWorkflowReady){alert('Отметка о кассовом чеке пока недоступна. Обновление подключается.');return;}const r=await db.rpc('iprint_set_cash_receipt',{p_sale_id:id,p_shift_id:salesSession?.shiftId||null,p_issued:true});if(r.error){alert(r.error.message);return;}await renderMovement();};
+ if(typeof grLoadAdmin==='function'){const baseReport=grLoadAdmin;grLoadAdmin=async function(){if(window.iprintWorkflowReady){const r=await db.rpc('iprint_sync_reports');if(r.error)alert('Не удалось обновить цифры общего отчёта: '+r.error.message);else if(r.data?.errors?.length)alert('Не все дни перенесены в отчёт: '+r.data.errors.map(e=>e.day+': '+e.message).join('; '));}return baseReport.apply(this,arguments);};}
  let dialog=null;
  window.iprintEditSale=async id=>{
   if(dialog)return;dialog=e('dialog',null,{class:'iprint-edit'});document.body.append(dialog);dialog.append(e('p','Открываю продажу…'));dialog.showModal();
