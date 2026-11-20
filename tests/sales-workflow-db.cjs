@@ -23,6 +23,22 @@ const {PGlite}=require('@electric-sql/pglite'),fs=require('node:fs'),assert=requ
  let denied=false;try{await db.query(`select iprint_edit_sale($1,101,$2,$3,0,0,'cash','[]','stale',false)`,[sale.id,detail.sale.edit_version,items]);}catch(e){denied=e.message.includes('другим сотрудником');}assert.equal(denied,true);
  const sync=(await one('select iprint_sync_reports(101) value')).value;assert.equal(sync.synced,1);assert.equal(sync.errors.length,0);let view=(await one('select report_staff_view(101) value')).value;assert.equal(Number(view.data.rows[String(view.row)].D.v),200);
  detail=await get();await db.query(`select iprint_edit_sale($1,101,$2,$3,0,0,'cash','[]','Ещё правка',false)`,[sale.id,detail.sale.edit_version,JSON.stringify([{catalog_id:101,quantity:30,unit_price:10}])]);view=(await one('select report_staff_view(101) value')).value;assert.equal(Number(view.data.rows[String(view.row)].D.v),300,'already transferred report follows corrected sale');
+
+ // Upgrade a populated legacy report, then exercise repeated synchronization and manual fields.
+ await db.query("select report_staff_set(101,'R','\"Сохранённый комментарий\"'::jsonb)");
+ await db.exec(fs.readFileSync('supabase/migrations/20261121000100_iprint_report_columns.sql','utf8'));
+ view=(await one('select report_fill_shift(101,\'auto\') value')).value;
+ assert.equal(Number(view.data.ncols),16);assert.equal(Number(view.data.rows[String(view.row)].C.v),300);
+ assert.equal(view.data.rows[String(view.row)].N.v,'Сохранённый комментарий');
+ assert.deepEqual(view.cols,['E','L','M','N','O','P']);
+ assert.equal(view.data.rows[String(view.from)].P.v,'Факт в кассе');assert.equal(view.data.rows[String(view.from)].G.v,'Счет');assert.equal(view.data.rows[String(view.to)].C.v,300);assert.equal(view.data.rows[String(view.row)].J.v,1);
+
+ for(const col of view.cols) await db.query('select report_staff_set(101,$1,$2::jsonb)',[col,JSON.stringify(col==='N'?'Комментарий':17)]);
+ await db.query('select report_fill_shift(101,\'manual\')');
+ view=(await one('select report_staff_view(101) value')).value;
+ for(const col of view.cols) assert.equal(view.data.rows[String(view.row)][col].v,col==='N'?'Комментарий':17);
+ let autoDenied=false;try{await db.query("select report_staff_set(101,'C','999'::jsonb)");}catch{autoDenied=true;}assert.equal(autoDenied,true);
+ assert.equal((await one('select count(*) n from iprint_private.report_layout_backup')).n,1);
  const prior=await one('select data from report_sheets where branch_id=101');await db.query('select iprint_report_prepare(101)');assert.deepEqual((await one('select data from report_sheets where branch_id=101')).data,prior.data,'repeating prepare preserves existing cells');
  await db.exec(`insert into sales_shifts(id,branch_id,employee_id,started_at,status,ended_at) values(102,101,102,'2027-01-15T10:00:00Z','closed','2027-01-15T18:00:00Z');`);await db.query('select iprint_report_prepare(102)');assert.deepEqual((await one('select data from report_sheets where branch_id=101')).data.rows[String(view.row)],prior.data.rows[String(view.row)],'new month preserves old data');
 
