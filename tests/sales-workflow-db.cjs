@@ -39,6 +39,25 @@ const {PGlite}=require('@electric-sql/pglite'),fs=require('node:fs'),assert=requ
  for(const col of view.cols) assert.equal(view.data.rows[String(view.row)][col].v,col==='N'?'Комментарий':17);
  let autoDenied=false;try{await db.query("select report_staff_set(101,'C','999'::jsonb)");}catch{autoDenied=true;}assert.equal(autoDenied,true);
  assert.equal((await one('select count(*) n from iprint_private.report_layout_backup')).n,1);
+
+ await db.exec(fs.readFileSync('supabase/migrations/20261122000100_iprint_cash_difference.sql','utf8'));
+ view=(await one("select report_fill_shift(101,'auto') value")).value;
+ assert.equal(view.data.ncols,18);assert.equal(Number(view.data.rows[String(view.row)].E.v),300);assert.equal(Number(view.data.rows[String(view.row)].Q.v),283);
+ assert.equal(view.data.rows[String(view.row)].N.v,'Комментарий');assert.equal(view.data.rows[String(view.from)].R.v,'Комментарий');assert.equal(view.data.rows[String(view.from)].Q.v,'Расхождения');
+ assert.deepEqual(view.cols,['L','M','N','O','P','Q','R']);
+ await db.query("select report_staff_set(101,'P','300'::jsonb)");
+ view=(await one('select report_staff_view(101) value')).value;assert.equal(view.data.rows[String(view.row)].Q.v,0);
+ await db.query("select report_staff_set(101,'Q','-15'::jsonb)");await db.query("select report_staff_set(101,'R','\"Пояснение расхождения\"'::jsonb)");
+ await db.query("select report_staff_set(101,'P','280'::jsonb)");await db.query("select report_fill_shift(101,'auto')");
+ view=(await one('select report_staff_view(101) value')).value;assert.equal(view.data.rows[String(view.row)].Q.v,-15,'manual difference survives refresh');assert.equal(view.data.rows[String(view.row)].R.v,'Пояснение расхождения');assert.equal(view.data.rows[String(view.row)].N.v,'Комментарий');
+ await db.query("select report_staff_set(101,'Q','null'::jsonb)");
+ view=(await one('select report_staff_view(101) value')).value;assert.equal(view.data.rows[String(view.row)].Q.v,20,'clearing restores auto');assert.equal(view.data.rows[String(view.to)].Q.v,20);
+
+ await db.query("select report_staff_set(101,'P','null'::jsonb)");view=(await one('select report_staff_view(101) value')).value;assert.equal(view.data.rows[String(view.row)].Q.v,undefined,'unknown actual is blank');
+ await db.query("select report_staff_set(101,'P','350'::jsonb)");view=(await one('select report_staff_view(101) value')).value;assert.equal(view.data.rows[String(view.row)].Q.v,-50);
+ await db.query("select report_staff_set(101,'P','0'::jsonb)");view=(await one('select report_staff_view(101) value')).value;assert.equal(view.data.rows[String(view.row)].Q.v,300,'zero is a real actual amount');
+ const Formula=require('../formula.js');const workbook=[{title:'Выручка',data:structuredClone(view.data)}];Formula.recalcBook({sheets:workbook});assert.equal(workbook[0].data.rows[String(view.row)].Q.v,300,'browser formula preserves a zero actual amount');
+ let cashDenied=false;try{await db.query("select report_staff_set(101,'E','1'::jsonb)");}catch{cashDenied=true;}assert.equal(cashDenied,true);
  const prior=await one('select data from report_sheets where branch_id=101');await db.query('select iprint_report_prepare(101)');assert.deepEqual((await one('select data from report_sheets where branch_id=101')).data,prior.data,'repeating prepare preserves existing cells');
  await db.exec(`insert into sales_shifts(id,branch_id,employee_id,started_at,status,ended_at) values(102,101,102,'2027-01-15T10:00:00Z','closed','2027-01-15T18:00:00Z');`);await db.query('select iprint_report_prepare(102)');assert.deepEqual((await one('select data from report_sheets where branch_id=101')).data.rows[String(view.row)],prior.data.rows[String(view.row)],'new month preserves old data');
 

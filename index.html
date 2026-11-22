@@ -6124,7 +6124,7 @@ function grShowStaff(v){
   gr.staff={...v,sheet:{title:v.title,data:v.data}};
   const hint=!v.cols?.length?'':(v.mode==='manual'
     ?'Заполните строку сегодняшнего дня (выделена жёлтым): нажмите на клетку и пишите. Enter — сохранить и дальше.'
-    :'Данные из кассы уже в строке дня. Вручную заполните наличные, перезаказы, расходы, комментарий, инкассацию и факт в кассе (белые клетки).');
+    :'Данные из кассы уже в строке дня. Наличные перенесены из кассы. Заполните перезаказы, расходы, комментарий, инкассацию и факт в кассе. Расхождения = наличные − факт в кассе; их можно исправить вручную, пояснение оставить в новом комментарии. Очистите расхождение, чтобы вернуть автоматический расчёт.');
   $('grBody').innerHTML=`<div class="gr-head"><b>${esc(v.title)}</b>${v.shared?'<span class="gr-note">только просмотр</span>':`<span class="gr-note">${esc(grMonthLabel(v.month))}</span>`}${v.mode==='manual'?'<span class="gr-tag">заполняется вручную</span>':''}</div>
   ${hint?`<div class="gr-hint">${hint}</div>`:''}
   ${v.past?.length?'<div class="gr-hint">Прошлые дни месяца тоже можно заполнить или исправить: нажмите на белую клетку в строке нужного дня.</div>':''}
@@ -6398,7 +6398,7 @@ buildShiftReport=async function(shiftId){
     let state='';const v=await db.rpc('report_staff_view',{p_shift_id:shiftId});
     if(!v.error&&v.data?.mode)state=v.data.mode==='manual'?'Сегодня отчет уже открыт для ручного заполнения.':'Данные смены уже перенесены в общий отчет. Нажмите ещё раз, чтобы обновить цифры.';
     $('shiftReportContent').insertAdjacentHTML('beforeend',`<div class="v5-box gr-fill" style="margin-top:16px"><b>📋 Общий отчет</b>
-      <div class="pp-sub">Перенесите данные смены и заполните наличные, перезаказы, расходы, комментарий, инкассацию и факт в кассе.</div>
+      <div class="pp-sub">Перенесите данные смены, заполните ручные поля и проверьте расхождения наличных.</div>
       ${state?`<div class="pp-sub"><b>${esc(state)}</b></div>`:''}
       <div class="gr-fill-btns"><button type="button" class="primary" id="grFillAuto">Перенести в общий отчет</button></div></div>`);
     $('grFillAuto').onclick=()=>grFillFromShift(shiftId,'auto');
