@@ -61,6 +61,29 @@ const {PGlite}=require('@electric-sql/pglite'),fs=require('node:fs'),assert=requ
  const prior=await one('select data from report_sheets where branch_id=101');await db.query('select iprint_report_prepare(101)');assert.deepEqual((await one('select data from report_sheets where branch_id=101')).data,prior.data,'repeating prepare preserves existing cells');
  await db.exec(`insert into sales_shifts(id,branch_id,employee_id,started_at,status,ended_at) values(102,101,102,'2027-01-15T10:00:00Z','closed','2027-01-15T18:00:00Z');`);await db.query('select iprint_report_prepare(102)');assert.deepEqual((await one('select data from report_sheets where branch_id=101')).data.rows[String(view.row)],prior.data.rows[String(view.row)],'new month preserves old data');
 
+ // New expected cash ledger; keep existing manual P/N/R fields and disallow Q overrides.
+ await db.exec(fs.readFileSync('supabase/migrations/20261124000100_iprint_cash_total.sql','utf8'));
+ view=(await one('select report_staff_view(101) value')).value;
+ assert.equal(view.data.ncols,19);assert.equal(view.data.rows[String(view.from)].S.v,'Итого в кассе');
+ assert.deepEqual(view.cols,['L','M','N','O','P','R']);
+ assert.equal(view.data.rows[String(view.row)].P.v,0);assert.equal(view.data.rows[String(view.row)].N.v,'Комментарий');assert.equal(view.data.rows[String(view.row)].R.v,'Пояснение расхождения');
+ let differenceDenied=false;try{await db.query("select report_staff_set(101,'Q','999'::jsonb)");}catch{differenceDenied=true;}assert.equal(differenceDenied,true);
+ await db.exec(`insert into sales_branches(id,name) values(103,'Ledger test');`);
+ const ledger={iprint_layout:3,ncols:18,nrows:7,styles:[],rows:{
+ '1':{A:{v:'Дата'}},'2':{A:{v:46053},P:{v:2000}},'3':{A:{v:'Итого'}},
+ '4':{A:{v:'Дата'}},'5':{A:{v:46054},E:{v:5000},M:{v:700},O:{v:3000},P:{v:3200},Q:{v:888},N:{v:'keep1'},R:{v:'keep2'}},
+ '6':{A:{v:46055},E:{v:100},P:{v:3300}},'7':{A:{v:'Итого'}}}};
+ await db.query("insert into report_sheets(title,branch_id,data,months) values('Ledger — выручка',103,$1,$2)",[JSON.stringify(ledger),JSON.stringify([{m:'2026-01',from:1,to:3},{m:'2026-02',from:4,to:7}])]);
+ const readLedger=async()=>(await one('select data from report_sheets where branch_id=103')).data;
+ let ld=await readLedger();assert.equal(ld.rows['5'].S.v,3300);assert.equal(ld.rows['5'].Q.v,100);assert.equal(ld.rows['6'].S.v,3300);assert.equal(ld.rows['6'].Q.v,0);assert.equal(ld.rows['5'].N.v,'keep1');assert.equal(ld.rows['5'].R.v,'keep2');
+ const recalc=()=>{const book={sheets:[{title:'Ledger — выручка',data:structuredClone(ld)}]};Formula.recalcBook(book);return book.sheets[0].data};
+ assert.equal(recalc().rows['5'].S.v,3300);assert.equal(recalc().rows['5'].Q.v,100);
+ await db.query("update report_sheets set data=jsonb_set(data,'{rows,2,P,v}','0') where branch_id=103");ld=await readLedger();assert.equal(ld.rows['5'].S.v,1300);assert.equal(ld.rows['5'].Q.v,-1900);assert.equal(recalc().rows['5'].Q.v,-1900);
+ await db.query("update report_sheets set data=jsonb_set(data,'{rows,5,P,v}','3000.50') where branch_id=103");ld=await readLedger();assert.equal(ld.rows['6'].S.v,3100.5);assert.equal(ld.rows['6'].Q.v,-199.5);
+ await db.query("update report_sheets set data=data #- '{rows,2,P}' where branch_id=103");ld=await readLedger();assert.equal(ld.rows['5'].S.v,undefined);assert.equal(ld.rows['5'].Q.v,undefined);assert.equal(recalc().rows['5'].S.v,'');
+ await db.query("update report_sheets set data=jsonb_set(data,'{rows,5,Q}', '{\"v\":999}') where branch_id=103");assert.equal((await readLedger()).rows['5'].Q.v,undefined,'manual override is always overwritten');
+ console.log('PASS cash ledger: previous day across month, expense/collection, zero, missing balance, decimals, next-day refresh, server/browser parity, preserved comments, staff restrictions.');
+
  await db.exec(`insert into loyalty_customers(name,phone) values('Тест клиента','79000000001');insert into loyalty_transactions(customer_id,transaction_type,order_amount,points,comment,available_at) select id,'adjustment',0,50,'Тестовый баланс',now() from loyalty_customers where phone='79000000001';`);
  const club=(await one("select id from loyalty_customers where phone='79000000001'")).id;
  const clubOrder=(await one("select iprint_create_sale($1,null,101,102,'bank_account','Клубная продажа',$2,p_loyalty_customer_id:=$3,p_loyalty_points:=10) n",[crypto.randomUUID(),JSON.stringify([{catalog_id:101,quantity:10,unit_price:10}]),club])).n;

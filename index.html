@@ -6041,6 +6041,7 @@ function grTableHTML(sheet,from,to,can,today){
   nc=Math.min(nc,d.ncols||nc);
   const {map,skip}=grMerges({...d,ncols:nc},from,to);
   for(let c=1;c<=nc;c++)cols.push(Formula.colName(c));
+  if((Number(d.iprint_layout)>=4||Object.values(d.rows).some(row=>row.S?.v==='Итого в кассе'))&&cols.includes('S')){cols.splice(cols.indexOf('S'),1);cols.splice(cols.indexOf('P'),0,'S')}
   const hdrs=grHeaderRows(sheet,from,to);
   let ws=grColWidths(sheet,from,to,cols,hdrs,map,skip);
   // Если всё равно не влезает в окно — чуть уменьшаем шрифт и столбцы (не мельче 70%).
@@ -6066,6 +6067,7 @@ function grCell(s,a){const x=grSplit(a);const row=s.data.rows[String(x.r)];retur
 function grSheet(){return gr.staff?gr.staff.sheet:gr.sheets[gr.cur]}
 function grCan(a){
   const x=grSplit(a);if(!x)return false;
+  if((Number(grSheet()?.data?.iprint_layout)>=4||Object.values(grSheet()?.data?.rows||{}).some(row=>row.S?.v==='Итого в кассе'))&&['S','Q'].includes(x.c))return false;
   if(gr.staff){const st=gr.staff;if(x.r===st.row)return (st.cols||[]).includes(x.c);return (st.past||[]).includes(x.r)&&(st.past_cols||[]).includes(x.c)}
   return isAdmin&&!!gr.sheets[gr.cur]
 }
@@ -6124,7 +6126,7 @@ function grShowStaff(v){
   gr.staff={...v,sheet:{title:v.title,data:v.data}};
   const hint=!v.cols?.length?'':(v.mode==='manual'
     ?'Заполните строку сегодняшнего дня (выделена жёлтым): нажмите на клетку и пишите. Enter — сохранить и дальше.'
-    :'Данные из кассы уже в строке дня. Наличные перенесены из кассы. Заполните перезаказы, расходы, комментарий, инкассацию и факт в кассе. Расхождения = наличные − факт в кассе; их можно исправить вручную, пояснение оставить в новом комментарии. Очистите расхождение, чтобы вернуть автоматический расчёт.');
+    :'Данные из кассы уже в строке дня. Наличные перенесены из кассы. Заполните перезаказы, расходы, комментарий, инкассацию и факт в кассе. Итого в кассе = факт за предыдущий день + наличные − расходы − инкассация. Расхождения = итого в кассе − факт в кассе. Оба столбца считаются автоматически. Если факт за предыдущий день не заполнен, сначала укажите его. Пояснение можно оставить во втором комментарии.');
   $('grBody').innerHTML=`<div class="gr-head"><b>${esc(v.title)}</b>${v.shared?'<span class="gr-note">только просмотр</span>':`<span class="gr-note">${esc(grMonthLabel(v.month))}</span>`}${v.mode==='manual'?'<span class="gr-tag">заполняется вручную</span>':''}</div>
   ${hint?`<div class="gr-hint">${hint}</div>`:''}
   ${v.past?.length?'<div class="gr-hint">Прошлые дни месяца тоже можно заполнить или исправить: нажмите на белую клетку в строке нужного дня.</div>':''}
@@ -6352,7 +6354,11 @@ function grStaffSet(a,text){
       :await db.rpc('report_staff_set_past',{p_shift_id:gr.shiftId,p_row:x.r,p_col:x.c,p_value:val});
     if(gr.staff!==st)return;
     if(r.error){grMsg('Не сохранилось '+a+': '+r.error.message,true);return}
-    for(const [rr,rowData] of Object.entries(r.data||{})){if(!rowData)continue;rows[rr]=rowData;for(const c of Object.keys(rowData))grPaint(c+rr)}
+    // A changed actual balance also changes the next calendar day's expected cash.
+    const refreshed=await db.rpc('report_staff_view',{p_shift_id:gr.shiftId});
+    if(gr.staff!==st)return;
+    const updatedRows=refreshed.error?r.data:refreshed.data?.data?.rows;
+    for(const [rr,rowData] of Object.entries(updatedRows||r.data||{})){if(!rowData)continue;rows[rr]=rowData;for(const c of Object.keys(rowData))grPaint(c+rr)}
     grMsg('Сохранено ✓');
   });
 }
