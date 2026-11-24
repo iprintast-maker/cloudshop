@@ -3,3 +3,6 @@ tmp/
 .env
 .env.*
 *.log
+
+windows-pos/bin/
+windows-pos/obj/

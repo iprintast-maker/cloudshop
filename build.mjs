@@ -7,7 +7,7 @@ const output = resolve(root, 'dist');
 if (dirname(output) !== root) throw new Error('Unexpected build destination');
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
-for (const file of ['index.html', 'config.js', 'formula.js', 'cashier-identity.js', 'estimate-pdf.js', 'sales-workflow.js', 'sales-workflow.css', 'assets', 'help.html', 'help.css', 'help.js', 'connection-check.html', 'spravochnik']) {
+for (const file of ['desktop-draft-core.js', 'desktop-pos.js', 'desktop-pos.css', 'index.html', 'config.js', 'formula.js', 'cashier-identity.js', 'estimate-pdf.js', 'sales-workflow.js', 'sales-workflow.css', 'assets', 'help.html', 'help.css', 'help.js', 'connection-check.html', 'spravochnik']) {
   await cp(resolve(root, file), resolve(output, file), { recursive: true });
 }
 console.log('Static site built in dist/');
