@@ -32,24 +32,28 @@ jobs:
           path: dist
           name: github-pages-${{ github.run_attempt }}
       - name: Wait for the uploaded artifact to become visible
+        id: artifact
         env:
           GH_TOKEN: ${{ github.token }}
           ARTIFACT_NAME: github-pages-${{ github.run_attempt }}
         run: |
           node --input-type=module <<'JS'
+          const { appendFileSync } = await import('node:fs');
           const url = `https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}/artifacts`;
           for (let attempt = 0; attempt < 30; attempt++) {
             const response = await fetch(url, { headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json' } });
             if (!response.ok) throw new Error(`Artifact lookup failed: ${response.status}`);
             const data = await response.json();
             const found = data.artifacts.filter(a => !a.expired && a.name === process.env.ARTIFACT_NAME);
-            if (found.length === 1) process.exit(0);
+            if (found.length === 1) { appendFileSync(process.env.GITHUB_OUTPUT, `id=${found[0].id}\n`); process.exit(0); }
             if (found.length > 1) throw new Error('Duplicate artifact for this attempt');
             await new Promise(resolve => setTimeout(resolve, 2000));
           }
           throw new Error('Uploaded artifact did not become visible');
           JS
-      - uses: actions/deploy-pages@v4
+      - name: Deploy verified artifact to Pages
         id: deployment
-        with:
-          artifact_name: github-pages-${{ github.run_attempt }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.artifact.outputs.id }}
+        run: node .github/scripts/deploy-pages.mjs
